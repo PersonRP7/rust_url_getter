@@ -101,6 +101,15 @@ async fn find_valid_url_for_question(client: &Client, base_template: &str, qnum:
     }
 }
 
+/// ## Usage
+///
+/// cargo run --release \
+///   "https://www.examtopics.com/discussions/splunk/view/{uid}-exam-splk-1003-topic-1-question-{qnum}-discussion/" \
+///   1
+/// ```
+///
+/// - The first argument is the **base URL template** containing `{uid}` and `{qnum}` placeholders.
+/// - The second argument (optional) is the **starting question number** (default: 1).
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
