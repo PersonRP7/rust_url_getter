@@ -13,8 +13,6 @@ use std::{
 use tokio::signal;
 use tokio::task;
 
-const BASE_TEMPLATE: &str =
-    "https://www.examtopics.com/discussions/splunk/view/{uid}-exam-splk-1003-topic-1-question-{qnum}-discussion/";
 const USER_AGENT: &str = "Mozilla/5.0";
 const UID_START: u32 = 10_000;
 const UID_END: u32 = 80_000;
@@ -36,12 +34,12 @@ async fn handle_signals() {
 }
 
 /// Check if a URL is valid (status 200, no redirects)
-async fn check_url(client: &Client, uid: u32, qnum: u32) -> Option<String> {
+async fn check_url(client: &Client, base_template: &str, uid: u32, qnum: u32) -> Option<String> {
     if STOP_REQUESTED.load(Ordering::SeqCst) {
         return None;
     }
 
-    let url = BASE_TEMPLATE
+    let url = base_template
         .replace("{uid}", &uid.to_string())
         .replace("{qnum}", &qnum.to_string());
 
@@ -74,8 +72,7 @@ async fn check_url(client: &Client, uid: u32, qnum: u32) -> Option<String> {
 }
 
 /// Search for a valid URL for one question
-async fn find_valid_url_for_question(client: &Client, qnum: u32) {
-    // Explicitly tell Rust what kind of futures we're storing
+async fn find_valid_url_for_question(client: &Client, base_template: &str, qnum: u32) {
     let mut futures: FuturesUnordered<_> = FuturesUnordered::new();
 
     for uid in UID_START..UID_END {
@@ -83,7 +80,6 @@ async fn find_valid_url_for_question(client: &Client, qnum: u32) {
             break;
         }
 
-        // Limit concurrency with a simple buffer
         while futures.len() >= MAX_CONCURRENCY {
             if let Some(res) = futures.next().await {
                 if let Some(_url) = res {
@@ -92,11 +88,9 @@ async fn find_valid_url_for_question(client: &Client, qnum: u32) {
             }
         }
 
-        // Push the async future into the set
-        futures.push(check_url(client, uid, qnum));
+        futures.push(check_url(client, base_template, uid, qnum));
     }
 
-    // Drain remaining futures
     while let Some(res) = futures.next().await {
         if STOP_REQUESTED.load(Ordering::SeqCst) {
             break;
@@ -109,6 +103,25 @@ async fn find_valid_url_for_question(client: &Client, qnum: u32) {
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("Usage: {} <BASE_URL_TEMPLATE> [START_QNUM]", args[0]);
+        eprintln!("Example:");
+        eprintln!(
+            "  {} \"https://www.examtopics.com/discussions/splunk/view/{{uid}}-exam-splk-1003-topic-1-question-{{qnum}}-discussion/\" 1",
+            args[0]
+        );
+        std::process::exit(1);
+    }
+
+    let base_template = &args[1];
+    let start_qnum = args
+        .get(2)
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(1);
+
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -117,18 +130,12 @@ async fn main() {
     // Spawn signal handler
     task::spawn(handle_signals());
 
-    let start_qnum = std::env::args()
-        .nth(1)
-        .and_then(|s| s.parse::<u32>().ok())
-        .filter(|&v| v > 0)
-        .unwrap_or(1);
-
     for qnum in start_qnum..=QUESTION_COUNT {
         if STOP_REQUESTED.load(Ordering::SeqCst) {
             break;
         }
         println!("Searching for Question {}...", qnum);
-        find_valid_url_for_question(&client, qnum).await;
+        find_valid_url_for_question(&client, base_template, qnum).await;
     }
 
     println!("Exiting.");
