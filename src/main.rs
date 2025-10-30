@@ -5,6 +5,7 @@ use rand::{thread_rng, Rng};
 use reqwest::Client;
 use std::{
     fs::File,
+    fs::OpenOptions,
     io::Write,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -30,7 +31,12 @@ const MAX_CONCURRENCY: usize = 5; // reduced for rate-limiting friendliness
 
 static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 static VALID_LOGGER: Lazy<Mutex<File>> = Lazy::new(|| {
-    Mutex::new(File::create("valid_urls.log").expect("Unable to create log file"))
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("valid_urls.log")
+        .expect("Unable to open or create log file");
+    Mutex::new(file)
 });
 
 /// Graceful shutdown (Ctrl+C)
